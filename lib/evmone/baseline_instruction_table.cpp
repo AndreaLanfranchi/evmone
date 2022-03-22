@@ -24,4 +24,21 @@ const CostTable& get_baseline_cost_table(evmc_revision rev) noexcept
 
     return cost_tables[rev];
 }
+
+const CostTable& get_baseline_legacy_cost_table(evmc_revision rev) noexcept
+{
+    static auto cost_tables = []() noexcept {
+        std::array<CostTable, EVMC_MAX_REVISION + 1> tables{};
+        for (size_t r = EVMC_FRONTIER; r <= EVMC_MAX_REVISION; ++r)
+            tables[r] = get_baseline_cost_table(static_cast<evmc_revision>(r));
+
+        tables[EVMC_CANCUN][OP_RJUMP] = instr::undefined;
+        tables[EVMC_CANCUN][OP_RJUMPI] = instr::undefined;
+
+        return tables;
+    }();
+
+    return cost_tables[rev];
+}
+
 }  // namespace evmone::baseline

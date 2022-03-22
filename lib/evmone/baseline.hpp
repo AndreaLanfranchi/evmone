@@ -24,6 +24,7 @@ struct CodeAnalysis
 
     std::unique_ptr<uint8_t[]> padded_code;
     JumpdestMap jumpdest_map;
+    bool is_legacy_code = false;
 };
 static_assert(std::is_move_constructible_v<CodeAnalysis>);
 static_assert(std::is_move_assignable_v<CodeAnalysis>);

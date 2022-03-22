@@ -28,7 +28,7 @@ namespace evmone::baseline
 {
 namespace
 {
-CodeAnalysis analyze_jumpdests(bytes_view code)
+std::pair<std::unique_ptr<uint8_t[]>, CodeAnalysis::JumpdestMap> analyze_jumpdests(bytes_view code)
 {
     // We need at most 33 bytes of code padding: 32 for possible missing all data bytes of PUSH32
     // at the very end of the code; and one more byte for STOP to guarantee there is a terminating
@@ -56,18 +56,20 @@ CodeAnalysis analyze_jumpdests(bytes_view code)
     std::fill_n(&padded_code[code.size()], padding, uint8_t{OP_STOP});
 
     // TODO: The padded code buffer and jumpdest bitmap can be created with single allocation.
-    return CodeAnalysis{std::move(padded_code), std::move(map)};
+    return std::make_pair(std::move(padded_code), std::move(map));
 }
 
 
 CodeAnalysis analyze_legacy(bytes_view code)
 {
-    return analyze_jumpdests(code);
+    auto code_and_jumpdest_map = analyze_jumpdests(code);
+    return {std::move(code_and_jumpdest_map.first), std::move(code_and_jumpdest_map.second), true};
 }
 
 CodeAnalysis analyze_eof1(bytes_view::const_iterator code, const EOF1Header& header)
 {
-    return analyze_jumpdests({&code[header.code_begin()], header.code_size});
+    auto code_and_jumpdest_map = analyze_jumpdests({&code[header.code_begin()], header.code_size});
+    return {std::move(code_and_jumpdest_map.first), std::move(code_and_jumpdest_map.second), false};
 }
 }  // namespace
 
@@ -241,7 +243,8 @@ evmc_result execute(const VM& vm, ExecutionState& state, const CodeAnalysis& ana
     if constexpr (TracingEnabled)
         tracer->notify_execution_start(state.rev, *state.msg, state.code);
 
-    const auto& cost_table = get_baseline_cost_table(state.rev);
+    const auto& cost_table = analysis.is_legacy_code ? get_baseline_legacy_cost_table(state.rev) :
+                                                       get_baseline_cost_table(state.rev);
 
     const auto* const code = state.code.data();
     const auto stack_bottom = state.stack_space.bottom();
