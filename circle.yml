@@ -71,6 +71,13 @@ commands:
           command: |
             curl -L https://github.com/Kitware/CMake/releases/download/v<<parameters.version>>/cmake-<<parameters.version>>-linux-x86_64.tar.gz | sudo tar -xz --strip=1
 
+  install_gmp:
+    steps:
+      - run:
+          name: "Install GMP"
+          command: |
+            sudo apt-get -q update && sudo apt-get -qy install --no-install-recommends libgmp-dev
+
   build_silkworm:
     parameters:
       branch:
@@ -94,11 +101,7 @@ commands:
             else
               echo 'export SILKWORM_BUILD=true' >> $BASH_ENV
             fi
-      - run:
-          name: "Install GMP-dev"
-          command: |
-            [ "$SILKWORM_BUILD" = true ] || exit 0
-            sudo apt-get -q update && sudo apt-get -qy install --no-install-recommends libgmp-dev
+      - install_gmp
       - run:
           name: "Checkout Silkworm"
           working_directory: ~/silkworm/src
@@ -276,6 +279,7 @@ jobs:
     environment:
       BUILD_TYPE: Release
     steps:
+      - install_gmp
       - build
       - test
       - package
@@ -284,6 +288,7 @@ jobs:
     executor: macos
     environment:
       BUILD_TYPE: Release
+      CMAKE_OPTIONS: -DEVMONE_SILKPRE=OFF
     steps:
       - run:
           name: "Install System Dependencies"
@@ -317,6 +322,7 @@ jobs:
       BUILD_TYPE: Coverage
       CMAKE_OPTIONS: -DEVMONE_TESTING=OFF -DCMAKE_CXX_FLAGS=-Og
     steps:
+      - install_gmp
       - build
       - build_silkworm:
           commit: d38c7115852ac40071df66ec681debe081d71afa
@@ -342,6 +348,7 @@ jobs:
       BUILD_TYPE: Coverage
       CMAKE_OPTIONS: -DCMAKE_CXX_FLAGS=-Og
     steps:
+      - install_gmp
       - build
       - run:
           # TODO: Merge with download_consensus_tests
@@ -368,12 +375,14 @@ jobs:
   gcc-min:
     executor: linux-gcc-min
     steps:
+      - install_gmp
       - build
       - test
 
   clang-min:
     executor: linux-clang-min
     steps:
+      - install_gmp
       - build
       - test
 
@@ -384,6 +393,7 @@ jobs:
       BUILD_TYPE: Coverage
       TESTS_FILTER: unittests|integration
     steps:
+      - install_gmp
       - build
       - test
       - collect_coverage_gcc
@@ -396,6 +406,7 @@ jobs:
       BUILD_TYPE: Debug
       CMAKE_OPTIONS: -DCMAKE_CXX_FLAGS=-O1
     steps:
+      - install_gmp
       - build
       - test
       - run:
@@ -410,6 +421,7 @@ jobs:
     executor: linux-gcc-multilib
     environment:
       TOOLCHAIN: cxx17-32bit
+      CMAKE_OPTIONS: -DEVMONE_SILKPRE=OFF
     steps:
       - build
       - test
@@ -420,6 +432,7 @@ jobs:
       CMAKE_OPTIONS: -DBUILD_SHARED_LIBS=NO -DSANITIZE=address,undefined,shift-exponent,implicit-conversion,nullability -DCMAKE_CXX_CLANG_TIDY=clang-tidy
       UBSAN_OPTIONS: halt_on_error=1
     steps:
+      - install_gmp
       - build
       - test
 
@@ -431,6 +444,7 @@ jobs:
       BUILD_TYPE: Coverage
       TESTS_FILTER: unittests|integration
     steps:
+      - install_gmp
       - build
       - test
       - run:
@@ -456,6 +470,7 @@ jobs:
     environment:
       CMAKE_OPTIONS: -DEVMONE_FUZZING=ON
     steps:
+      - install_gmp
       - build
       - restore_cache:
           name: "Restore fuzzing corpus"
@@ -475,7 +490,7 @@ jobs:
     executor: macos
     environment:
       BUILD_TYPE: RelWithDebInfo
-      CMAKE_OPTIONS: -DSANITIZE=address
+      CMAKE_OPTIONS: -DSANITIZE=address -DEVMONE_SILKPRE=OFF
       TESTS_FILTER: unittests
     steps:
       - run:
@@ -489,6 +504,7 @@ jobs:
     steps:
       - install_cmake:
           version: 3.16.9
+      - install_gmp
       - build
       - test
 
@@ -503,8 +519,6 @@ workflows:
               only: /.*/
       - release-macos:
           filters:
-            branches:
-              ignore: /.*/
             tags:
               only: /.*/
       - deploy:
