@@ -27,6 +27,9 @@ SilkpreResult ethprecompiles_v1_ecmul_execute(
 
 SilkpreResult ethprecompiles1_sha256_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
+
+SilkpreResult ethprecompiles1_blake2bf_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 }
 
 namespace evmone::state
@@ -75,7 +78,7 @@ PrecompiledCost ecpairing_cost(const uint8_t*, size_t input_size, evmc_revision 
 
 PrecompiledCost blake2bf_cost(const uint8_t* input, size_t input_size, evmc_revision) noexcept
 {
-    if (input_size < 4)
+    if (input_size != 213)
         return {std::numeric_limits<int64_t>::max(), 0};
     return {intx::be::unsafe::load<uint32_t>(input), 64};
 }
@@ -217,7 +220,7 @@ constexpr auto traits = [] {
     tbl[6] = {"ecadd", ecadd_cost, ecadd_execute};
     tbl[7] = {"ecmul", ecmul_cost, ethprecompiles_v1_ecmul_execute};
     tbl[8] = {"ecpairing", ecpairing_cost, ecpairing_execute};
-    tbl[9] = {"blake2bf", blake2bf_cost, ethprecompiled_blake2bf};
+    tbl[9] = {"blake2bf", blake2bf_cost, ethprecompiles1_blake2bf_execute};
     return tbl;
 }();
 }  // namespace
