@@ -30,6 +30,9 @@ SilkpreResult ethprecompiles1_sha256_execute(
 
 SilkpreResult ethprecompiles1_blake2bf_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
+
+SilkpreResult ethprecompile1_expmod_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 }
 
 namespace evmone::state
@@ -216,7 +219,7 @@ constexpr auto traits = [] {
         },
         ripemd160_execute};
     tbl[4] = {"identity", identity_cost, identity_exec};
-    tbl[5] = {"expmod", internal_expmod_gas, ethprecompiled_expmod};
+    tbl[5] = {"expmod", internal_expmod_gas, ethprecompile1_expmod_execute};
     tbl[6] = {"ecadd", ecadd_cost, ecadd_execute};
     tbl[7] = {"ecmul", ecmul_cost, ethprecompiles_v1_ecmul_execute};
     tbl[8] = {"ecpairing", ecpairing_cost, ecpairing_execute};
