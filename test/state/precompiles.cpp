@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "precompiles.hpp"
+#include "hash_utils.hpp"
 #include <intx/intx.hpp>
 #include <cassert>
 #include <limits>
@@ -66,6 +67,26 @@ inline constexpr PrecompiledCost ecrecover_cost(
     return {3000, 32};
 }
 
+inline SilkpreResult ecrecover_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept
+{
+    static constexpr size_t required_input_size = 128;
+    assert(output_size == 32);
+    uint8_t in[required_input_size]{};
+    std::copy_n(input, std::min(input_size, required_input_size), in);
+
+    uint8_t public_key[64];
+    const auto v = intx::be::unsafe::load<intx::uint256>(in + 32);
+    if (v != 27 && v != 28)
+        return {0, 0};
+    if (!eth_ecrecover_v1(public_key, in, in + 64, v != 27))
+        return {0, 0};
+    const auto hash = keccak256({public_key, std::size(public_key)});
+    std::fill_n(output, 12, 0);
+    std::copy_n(hash.bytes + 12, 20, output + 12);
+    return {0, 32};
+}
+
 PrecompiledCost sha256_cost(const uint8_t*, size_t input_size, evmc_revision /*rev*/) noexcept
 {
     return {cost_per_input_word<60, 12>(input_size), 32};
@@ -85,6 +106,19 @@ PrecompiledCost identity_cost(const uint8_t*, size_t input_size, evmc_revision /
 PrecompiledCost ecadd_cost(const uint8_t*, size_t /*input_size*/, evmc_revision rev) noexcept
 {
     return {rev >= EVMC_ISTANBUL ? 150 : 500, 64};
+}
+
+inline SilkpreResult ecadd_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept
+{
+    static constexpr size_t required_input_size = 128;
+    assert(output_size == 64);
+    uint8_t in[required_input_size]{};
+    std::copy_n(input, std::min(input_size, required_input_size), in);
+
+    if (!eth_ecadd_v1(output, in, in + 64))
+        return {1, 0};
+    return {0, 64};
 }
 
 PrecompiledCost ecmul_cost(const uint8_t*, size_t /*input_size*/, evmc_revision rev) noexcept
@@ -224,7 +258,7 @@ struct PrecompiledTraits
 
 inline constexpr std::array<PrecompiledTraits, 10> traits{{
     {},  // undefined for 0
-    {ecrecover_cost, ethprecompiled_ecrecover},
+    {ecrecover_cost, ecrecover_execute},
     {sha256_cost, ethprecompiles1_sha256_execute},
     {ripemd160_cost, ripemd160_execute},
     {identity_cost, identity_exec},
