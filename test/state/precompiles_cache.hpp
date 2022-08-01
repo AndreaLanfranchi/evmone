@@ -20,6 +20,9 @@ class Cache
     std::array<std::unordered_map<uint64_t, std::optional<bytes>>, NumPrecompiles> m_cache;
 
 public:
+    Cache() noexcept;
+    ~Cache() noexcept;
+
     std::optional<evmc::result> find(uint8_t id, bytes_view input, int64_t gas_left) const;
 
     void insert(uint8_t id, bytes_view input, const evmc::result& result);
