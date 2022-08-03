@@ -264,7 +264,7 @@ std::optional<evmc::result> call_precompile(evmc_revision rev, const evmc_messag
     const auto [gas_cost, max_output_size] = t.analyze(msg.input_data, msg.input_size, rev);
     const auto gas_left = msg.gas - gas_cost;
     if (gas_left < 0)
-        return evmc::result{EVMC_OUT_OF_GAS, 0, nullptr, 0};
+        return evmc::result{EVMC_OUT_OF_GAS};
     assert(std::size(output_buf) >= max_output_size);
 
     static Cache cache;
