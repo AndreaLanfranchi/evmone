@@ -5,6 +5,7 @@
 #include "host.hpp"
 #include "precompiles.hpp"
 #include "rlp.hpp"
+#include <iostream>
 
 namespace evmone::state
 {
@@ -21,6 +22,98 @@ bytes32 Host::get_storage(const address& addr, const bytes32& key) const noexcep
         return it->second.current;
     return {};
 }
+
+enum storage_status2
+{
+    ST_MODIFIED_AGAIN,
+    ST_ADDED,
+    ST_MODIFIED,
+    ST_DELETED,
+    ST_DELETED_ADDED,
+    ST_MODIFIED_DELETED,
+    ST_ADDED_DELETED,
+    ST_MODIFIED_RESTORED,
+    ST_DELETED_RESTORED,
+};
+
+struct StorageTrait
+{
+    evmc_storage_status old_status;
+    int32_t refund;
+};
+
+static constexpr auto storage_traits = []() noexcept {
+    std::array<std::array<StorageTrait, 9>, EVMC_MAX_REVISION + 1> tbl{};
+
+    auto& frontier = tbl[EVMC_FRONTIER];
+    frontier[ST_MODIFIED_AGAIN] = {EVMC_STORAGE_MODIFIED_AGAIN, 0};
+    frontier[ST_ADDED] = {EVMC_STORAGE_ADDED, 0};
+    frontier[ST_MODIFIED] = {EVMC_STORAGE_MODIFIED, 0};
+    frontier[ST_DELETED] = {EVMC_STORAGE_DELETED, 15000};
+    frontier[ST_DELETED_ADDED] = frontier[ST_ADDED];
+    frontier[ST_MODIFIED_DELETED] = frontier[ST_DELETED];
+    frontier[ST_ADDED_DELETED] = frontier[ST_DELETED];
+    frontier[ST_MODIFIED_RESTORED] = frontier[ST_MODIFIED];
+    frontier[ST_DELETED_RESTORED] = frontier[ST_ADDED];
+
+    tbl[EVMC_HOMESTEAD] = frontier;
+    tbl[EVMC_TANGERINE_WHISTLE] = frontier;
+    tbl[EVMC_SPURIOUS_DRAGON] = frontier;
+    tbl[EVMC_BYZANTIUM] = frontier;
+
+    auto& constantinople = tbl[EVMC_CONSTANTINOPLE];
+
+    constantinople[ST_MODIFIED_AGAIN] = {EVMC_STORAGE_MODIFIED_AGAIN, 0};
+    constantinople[ST_ADDED] = {EVMC_STORAGE_ADDED, 0};
+    constantinople[ST_MODIFIED] = {EVMC_STORAGE_MODIFIED, 0};
+    constantinople[ST_DELETED] = {EVMC_STORAGE_DELETED, 15000};
+    constantinople[ST_DELETED_ADDED] = {EVMC_STORAGE_MODIFIED_AGAIN, -15000};
+    constantinople[ST_MODIFIED_DELETED] = {EVMC_STORAGE_MODIFIED_AGAIN, 15000};
+    constantinople[ST_ADDED_DELETED] = {EVMC_STORAGE_MODIFIED_AGAIN, 19800};
+    constantinople[ST_MODIFIED_RESTORED] = {EVMC_STORAGE_MODIFIED_AGAIN, 4800};
+    constantinople[ST_DELETED_RESTORED] = {EVMC_STORAGE_MODIFIED_AGAIN, 4800 - 15000};
+
+    tbl[EVMC_PETERSBURG] = frontier;
+
+    auto& istanbul = tbl[EVMC_ISTANBUL] = constantinople;
+    istanbul[ST_ADDED_DELETED].refund = 19200;
+    istanbul[ST_DELETED_RESTORED].refund = 4200 - 15000;
+    istanbul[ST_MODIFIED_RESTORED].refund = 4200;
+
+    auto& berlin = tbl[EVMC_BERLIN] = istanbul;
+    berlin[ST_ADDED_DELETED].refund = 19900;
+    berlin[ST_DELETED_RESTORED].refund = 2800 - 15000;
+    berlin[ST_MODIFIED_RESTORED].refund = 2800;
+
+    auto& london = tbl[EVMC_LONDON] = berlin;
+    london[ST_DELETED].refund = 4800;
+    london[ST_DELETED_RESTORED].refund = 2800 - 4800;
+    london[ST_MODIFIED_DELETED].refund = 4800;
+    london[ST_DELETED_ADDED].refund = -4800;
+
+    tbl[EVMC_PARIS] = london;
+    tbl[EVMC_SHANGHAI] = london;
+    tbl[EVMC_CANCUN] = london;
+
+    return tbl;
+}();
+
+struct HitMap
+{
+    std::array<std::array<bool, 9>, EVMC_MAX_REVISION + 1> tbl{};
+
+    ~HitMap()
+    {
+        for (auto& rev : tbl)
+        {
+            for (auto b : rev)
+                std::cerr << int(b);
+            std::cerr << "\n";
+        }
+    }
+};
+
+static HitMap hitmap;
 
 evmc_storage_status Host::set_storage(
     const address& addr, const bytes32& key, const bytes32& value) noexcept
@@ -53,6 +146,89 @@ evmc_storage_status Host::set_storage(
 
     auto& [current, original, _] = storage[key];
     [[maybe_unused]] const auto prev_refund = m_refund;
+
+    const StorageTrait* t = nullptr;
+    int xxxx = -1;
+    auto st = static_cast<storage_status2>(xxxx);
+
+    if (m_rev <= EVMC_LONDON)
+    {
+        st = ST_MODIFIED_AGAIN;
+        if (current != value)
+        {
+            if (original == current)
+            {
+                if (is_zero(current))
+                {
+                    assert(is_zero(current) && !is_zero(value));
+                    st = ST_ADDED;
+                }
+                else if (!is_zero(value))
+                {
+                    assert(!is_zero(current));
+                    st = ST_MODIFIED;
+                }
+                else
+                {
+                    assert(!is_zero(current) && is_zero(value));
+                    st = ST_DELETED;
+                }
+            }
+            else  // dirty
+            {
+                if (original == value)  // restored
+                {
+                    if (is_zero(value))  // 0 -> Y -> 0 "added deleted"
+                    {
+                        assert(is_zero(original));
+                        assert(is_zero(value));
+                        assert(!is_zero(current));
+                        st = ST_ADDED_DELETED;
+                    }
+                    else if (is_zero(current))  // X -> 0 -> X "deleted restored"
+                    {
+                        st = ST_DELETED_RESTORED;
+                    }
+                    else  // X -> Y -> X "modified restored"
+                    {
+                        assert(!is_zero(value));
+                        st = ST_MODIFIED_RESTORED;
+                    }
+                }
+                else
+                {
+                    if (is_zero(value))  // X -> Y -> 0 "modified deleted"
+                    {
+                        assert(!is_zero(current));
+                        assert(is_zero(value));
+                        assert(original != value);
+                        st = ST_MODIFIED_DELETED;
+                    }
+                    else if (is_zero(current))  // X -> 0 -> Y "deleted added"
+                    {
+                        st = ST_DELETED_ADDED;
+                    }
+                    else
+                    {
+                        // 0 -> Y -> Z "added modified"
+                        // X -> Y -> Z "modified modified"
+                        assert(!is_zero(current));
+                        assert(!is_zero(value));
+                        assert(value != current);
+                    }
+                }
+            }
+        }
+
+        hitmap.tbl[m_rev][st] = true;
+
+        // old.current = value;
+        // const auto& t = storage_traits[m_rev][st];
+        // m_refund += t.refund;
+        // return t.old_status;
+
+        t = &storage_traits[m_rev][st];
+    }
 
     auto status = EVMC_STORAGE_MODIFIED_AGAIN;
     if (current != value)
@@ -127,7 +303,6 @@ evmc_storage_status Host::set_storage(
                 }
             }
         }
-        current = value;
     }
 
     // assert((m_refund - prev_refund) != 4800);  // X → Y → 0  modified deleted
@@ -137,6 +312,25 @@ evmc_storage_status Host::set_storage(
     // assert((m_refund - prev_refund) != -2000); // X → 0 → X  deleted restored
     //  std::cerr << std::dec << "REFUND: " << m_refund << " (" << (m_refund - prev_refund) <<
     //  ")\n";
+
+    if (t != nullptr)
+    {
+        auto old_status = t->old_status;
+        if (old_status == EVMC_STORAGE_MODIFIED_AGAIN && current != value &&
+            (m_rev < EVMC_CONSTANTINOPLE || m_rev == EVMC_PETERSBURG))
+            old_status = EVMC_STORAGE_MODIFIED;
+
+        const auto refund = m_refund - prev_refund;
+        if (status != old_status)
+        {
+            std::cerr << "c: " << status << " n: " << old_status << "\n";
+            std::cerr << evmc::hex(original) << " " << hex(current) << " " << hex(value) << "\n";
+        }
+        assert(status == old_status);
+        assert(refund == t->refund);
+    }
+
+    current = value;
     return status;
 }
 
