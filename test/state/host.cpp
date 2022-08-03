@@ -29,7 +29,7 @@ evmc_storage_status Host::set_storage(
 
     // Follow https://eips.ethereum.org/EIPS/eip-2200 specification.
 
-    /*
+    /* Outdated
     o       c   n                       f t d r   legacy
     0|X →…→ A → A  modified locally     0 0 0 0   m
     0|X →…→ Y → Z  modified locally     1 1 1 1
@@ -51,71 +51,83 @@ evmc_storage_status Host::set_storage(
     X   →…→ Y → 0  modified deleted     1 0 1 0   d
     */
 
-    auto& old = storage[key];
+    auto& [current, original, _] = storage[key];
     [[maybe_unused]] const auto prev_refund = m_refund;
 
-    auto status = EVMC_STORAGE_UNCHANGED;
-    if (old.current == value)
+    auto status = EVMC_STORAGE_MODIFIED_AGAIN;
+    if (current != value)
     {
-        status = EVMC_STORAGE_UNCHANGED;  // 000
-    }
-    else
-    {
-        if (old.original == old.current || m_rev < EVMC_CONSTANTINOPLE || m_rev == EVMC_PETERSBURG)
+        if (original == current || m_rev < EVMC_CONSTANTINOPLE || m_rev == EVMC_PETERSBURG)
         {
-            if (is_zero(old.current))
+            if (is_zero(current))
             {
-                assert(is_zero(old.current) && !is_zero(value));
-                status = EVMC_STORAGE_ADDED;  // 010
+                assert(is_zero(current) && !is_zero(value));
+                status = EVMC_STORAGE_ADDED;
             }
             else if (!is_zero(value))
             {
-                assert(!is_zero(old.current));
-                status = EVMC_STORAGE_MODIFIED;  // 011
+                assert(!is_zero(current));
+                status = EVMC_STORAGE_MODIFIED;
             }
             else
             {
-                assert(!is_zero(old.current) && is_zero(value));
-                status = EVMC_STORAGE_DELETED;  // 001
+                assert(!is_zero(current) && is_zero(value));
+                status = EVMC_STORAGE_DELETED;
                 m_refund += (m_rev >= EVMC_LONDON) ? 4800 : 15000;
             }
         }
         else  // dirty
         {
-            status = EVMC_STORAGE_MODIFIED_AGAIN;
-            if (!is_zero(old.original))
+            if (original == value)  // restored
             {
-                if (is_zero(old.current))  // X -> 0 -> Y "deleted added"  110
+                if (is_zero(value))  // 0 -> Y -> 0 "added deleted"
                 {
-                    assert(is_zero(old.current) && !is_zero(value));
-                    m_refund -= (m_rev >= EVMC_LONDON) ? 4800 : 15000;
-                }
-                else if (is_zero(value))  // X -> Y -> 0 "modified deleted"  101
-                {
-                    assert(!is_zero(old.current) && is_zero(value));
-                    m_refund += (m_rev >= EVMC_LONDON) ? 4800 : 15000;
-                }
-            }
-            if (old.original == value)
-            {
-                if (is_zero(value))  // 0 -> X -> 0 "added deleted"
-                {
-                    assert(!is_zero(old.current) && is_zero(value));
+                    assert(is_zero(original));
+                    assert(is_zero(value));
+                    assert(!is_zero(current));
                     m_refund += (m_rev >= EVMC_BERLIN)         ? 19900 :
                                 (m_rev == EVMC_CONSTANTINOPLE) ? 19800 :
                                                                  19200;
                 }
-                else  // X -> 0|Y -> X "restored"
+                else if (is_zero(current))  // X -> 0 -> X "deleted restored"
                 {
-                    // assert(is_zero(old.current));
-                    // assert(!is_zero(old.current));
+                    m_refund += (m_rev >= EVMC_LONDON)         ? 2800 - 4800 :
+                                (m_rev >= EVMC_BERLIN)         ? 2800 - 15000 :
+                                (m_rev == EVMC_CONSTANTINOPLE) ? 4800 - 15000 :
+                                                                 4200 - 15000;
+                }
+                else  // X -> Y -> X "modified restored"
+                {
+                    assert(!is_zero(value));
                     m_refund += (m_rev >= EVMC_BERLIN)         ? 2800 :
                                 (m_rev == EVMC_CONSTANTINOPLE) ? 4800 :
                                                                  4200;
                 }
             }
+            else
+            {
+                if (is_zero(value))  // X -> Y -> 0 "modified deleted"
+                {
+                    assert(!is_zero(current));
+                    assert(is_zero(value));
+                    assert(original != value);
+                    m_refund += (m_rev >= EVMC_LONDON) ? 4800 : 15000;
+                }
+                else if (is_zero(current))  // X -> 0 -> Y "deleted added"
+                {
+                    m_refund += (m_rev >= EVMC_LONDON) ? -4800 : -15000;
+                }
+                else
+                {
+                    // 0 -> Y -> Z "added modified"
+                    // X -> Y -> Z "modified modified"
+                    assert(!is_zero(current));
+                    assert(!is_zero(value));
+                    assert(value != current);
+                }
+            }
         }
-        old.current = value;
+        current = value;
     }
 
     // assert((m_refund - prev_refund) != 4800);  // X → Y → 0  modified deleted
