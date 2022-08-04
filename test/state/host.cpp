@@ -96,105 +96,76 @@ static HitMap hitmap;
 evmc_storage_status Host::set_storage(
     const address& addr, const bytes32& key, const bytes32& value) noexcept
 {
-    auto& storage = m_state.get(addr).storage;
-
     // Follow https://eips.ethereum.org/EIPS/eip-2200 specification.
 
-    /* Outdated
-    o       c   n                       f t d r   legacy
-    0|X →…→ A → A  modified locally     0 0 0 0   m
-    0|X →…→ Y → Z  modified locally     1 1 1 1
-                                            1
-                                            1
-                                            1
-                                            1
-                                            1
-                                            1
+    //                             o≠c (dirty)
+    //                             | o=v (restored)
+    //                             | | c≠0
+    //                             | | | v≠0
+    //                     o→c→v   | | | |   check
+    // added               0 0 Z   0 0 0 1    1
+    // deleted             X X 0   0 0 1 0    2
+    // modified            X X Z   0 0 1 1    3
+    // deleted added       X 0 Z   1 0 0 1    9
+    // modified deleted    X Y 0   1 0 1 0   10
+    // deleted restored    X 0 X   1 1 0 1   13
+    // added deleted       0 Y 0   1 1 1 0   14
+    // modified restored   X Y X   1 1 1 1   15
+    //
+    // modified again      0 0 0   0 1 0 0    4
+    //        "            X X X   0 1 1 1    7
+    //        "            X 0 0   1 0 0 0    8
+    //        "            0 Y Y   1 0 1 1   11
+    //        "            X Y Y   1 0 1 1
+    //        "            0 Y Z   1 0 1 1
+    //        "            X Y Z   1 0 1 1
+    //
+    // impossible                  0 0 0 0    3   o=c,o≠v,c=0 ⇒ v≠0
+    //        "                    0 1 0 1    5   o=c,o=v,c=0 ⇒ v=0
+    //        "                    0 1 1 0    6   o=c,o=v,c≠0 ⇒ v≠0
+    //        "                    1 1 0 0   12   o≠c,o=v,c=0 ⇒ v≠0
+    //
 
-    X   →…→ X → 0  deleted              1 0 0 0   d
-    0   →…→ 0 → X  added                0 1 0 0   a
-    X   →…→ X → Y  modified             1 1 0 0   m
+    auto& storage_slot = m_state.get(addr).storage[key];
+    const auto& [current, original, _] = storage_slot;
 
-    X   →…→ 0 → Y  deleted added        0 1 1 0   a
-    X   →…→ 0 → X  deleted restored     0 1 1 1   a
-    0   →…→ X → 0  added deleted        1 0 1 1   d
-    X   →…→ Y → X  modified restored    1 1 1 1   m
-    X   →…→ Y → 0  modified deleted     1 0 1 0   d
-    */
+    const auto dirty = original != current;
+    const auto restored = original == value;
+    const auto current_is_zero = is_zero(current);
+    const auto value_is_zero = is_zero(value);
 
-    auto& [current, original, _] = storage[key];
-    auto st = EVMC_STORAGE_MODIFIED_AGAIN;
-    if (current != value)
+    auto status = EVMC_STORAGE_MODIFIED_AGAIN;
+    if (!dirty && !restored)
     {
-        if (original == current)  // clean
-        {
-            if (is_zero(current))
-            {
-                assert(is_zero(current) && !is_zero(value));
-                st = EVMC_STORAGE_ADDED;
-            }
-            else if (!is_zero(value))
-            {
-                assert(!is_zero(current));
-                st = EVMC_STORAGE_MODIFIED;
-            }
-            else
-            {
-                assert(!is_zero(current) && is_zero(value));
-                st = EVMC_STORAGE_DELETED;
-            }
-        }
-        else  // dirty
-        {
-            if (original == value)  // restored
-            {
-                if (is_zero(value))  // 0 -> Y -> 0 "added deleted"
-                {
-                    assert(is_zero(original));
-                    assert(is_zero(value));
-                    assert(!is_zero(current));
-                    st = EVMC_STORAGE_ADDED_DELETED;
-                }
-                else if (is_zero(current))  // X -> 0 -> X "deleted restored"
-                {
-                    st = EVMC_STORAGE_DELETED_RESTORED;
-                }
-                else  // X -> Y -> X "modified restored"
-                {
-                    assert(!is_zero(value));
-                    st = EVMC_STORAGE_MODIFIED_RESTORED;
-                }
-            }
-            else
-            {
-                if (is_zero(value))  // X -> Y -> 0 "modified deleted"
-                {
-                    assert(!is_zero(current));
-                    assert(is_zero(value));
-                    assert(original != value);
-                    st = EVMC_STORAGE_MODIFIED_DELETED;
-                }
-                else if (is_zero(current))  // X -> 0 -> Y "deleted added"
-                {
-                    st = EVMC_STORAGE_DELETED_ADDED;
-                }
-                else
-                {
-                    // 0 -> Y -> Z "added modified"
-                    // X -> Y -> Z "modified modified"
-                    assert(!is_zero(current));
-                    assert(!is_zero(value));
-                    assert(value != current);
-                }
-            }
-        }
-        current = value;
+        if (current_is_zero)
+            status = EVMC_STORAGE_ADDED;  // 0 → 0 → Z
+        else if (value_is_zero)
+            status = EVMC_STORAGE_DELETED;  // X → X → 0
+        else
+            status = EVMC_STORAGE_MODIFIED;  // X → X → Z
+    }
+    else if (dirty && !restored)
+    {
+        if (current_is_zero && !value_is_zero)
+            status = EVMC_STORAGE_DELETED_ADDED;  // X → 0 → Z
+        else if (!current_is_zero && value_is_zero)
+            status = EVMC_STORAGE_MODIFIED_DELETED;  // X → Y → 0
+    }
+    else if (dirty && restored)
+    {
+        if (current_is_zero)
+            status = EVMC_STORAGE_DELETED_RESTORED;  // X → 0 → X
+        else if (value_is_zero)
+            status = EVMC_STORAGE_ADDED_DELETED;  // 0 → Y → 0
+        else
+            status = EVMC_STORAGE_MODIFIED_RESTORED;  // X → Y → X
     }
 
-    hitmap.tbl[m_rev][st] = true;
+    hitmap.tbl[m_rev][status] = true;
 
-    m_refund += storage_refunds[m_rev][st];;
-    return st;
+    storage_slot.current = value;
+    m_refund += storage_refunds[m_rev][status];
+    return status;
 }
 
 uint256be Host::get_balance(const address& addr) const noexcept
