@@ -23,38 +23,16 @@ bytes32 Host::get_storage(const address& addr, const bytes32& key) const noexcep
     return {};
 }
 
-enum storage_status2
-{
-    ST_MODIFIED_AGAIN,
-    ST_ADDED,
-    ST_MODIFIED,
-    ST_DELETED,
-    ST_DELETED_ADDED,
-    ST_MODIFIED_DELETED,
-    ST_ADDED_DELETED,
-    ST_MODIFIED_RESTORED,
-    ST_DELETED_RESTORED,
-};
-
-struct StorageTrait
-{
-    evmc_storage_status old_status;
-    int32_t refund;
-};
-
-static constexpr auto storage_traits = []() noexcept {
-    std::array<std::array<StorageTrait, 9>, EVMC_MAX_REVISION + 1> tbl{};
+static constexpr auto storage_refunds = []() noexcept {
+    std::array<std::array<int32_t, 9>, EVMC_MAX_REVISION + 1> tbl{};
 
     auto& frontier = tbl[EVMC_FRONTIER];
-    frontier[ST_MODIFIED_AGAIN] = {EVMC_STORAGE_MODIFIED_AGAIN, 0};
-    frontier[ST_ADDED] = {EVMC_STORAGE_ADDED, 0};
-    frontier[ST_MODIFIED] = {EVMC_STORAGE_MODIFIED, 0};
-    frontier[ST_DELETED] = {EVMC_STORAGE_DELETED, 15000};
-    frontier[ST_DELETED_ADDED] = frontier[ST_ADDED];
-    frontier[ST_MODIFIED_DELETED] = frontier[ST_DELETED];
-    frontier[ST_ADDED_DELETED] = frontier[ST_DELETED];
-    frontier[ST_MODIFIED_RESTORED] = frontier[ST_MODIFIED];
-    frontier[ST_DELETED_RESTORED] = frontier[ST_ADDED];
+    frontier[EVMC_STORAGE_DELETED] = 15000;
+    frontier[EVMC_STORAGE_DELETED_ADDED] = frontier[EVMC_STORAGE_ADDED];
+    frontier[EVMC_STORAGE_MODIFIED_DELETED] = frontier[EVMC_STORAGE_DELETED];
+    frontier[EVMC_STORAGE_ADDED_DELETED] = frontier[EVMC_STORAGE_DELETED];
+    frontier[EVMC_STORAGE_MODIFIED_RESTORED] = frontier[EVMC_STORAGE_MODIFIED];
+    frontier[EVMC_STORAGE_DELETED_RESTORED] = frontier[EVMC_STORAGE_ADDED];
 
     tbl[EVMC_HOMESTEAD] = frontier;
     tbl[EVMC_TANGERINE_WHISTLE] = frontier;
@@ -63,33 +41,33 @@ static constexpr auto storage_traits = []() noexcept {
 
     auto& constantinople = tbl[EVMC_CONSTANTINOPLE];
 
-    constantinople[ST_MODIFIED_AGAIN] = {EVMC_STORAGE_MODIFIED_AGAIN, 0};
-    constantinople[ST_ADDED] = {EVMC_STORAGE_ADDED, 0};
-    constantinople[ST_MODIFIED] = {EVMC_STORAGE_MODIFIED, 0};
-    constantinople[ST_DELETED] = {EVMC_STORAGE_DELETED, 15000};
-    constantinople[ST_DELETED_ADDED] = {EVMC_STORAGE_MODIFIED_AGAIN, -15000};
-    constantinople[ST_MODIFIED_DELETED] = {EVMC_STORAGE_MODIFIED_AGAIN, 15000};
-    constantinople[ST_ADDED_DELETED] = {EVMC_STORAGE_MODIFIED_AGAIN, 19800};
-    constantinople[ST_MODIFIED_RESTORED] = {EVMC_STORAGE_MODIFIED_AGAIN, 4800};
-    constantinople[ST_DELETED_RESTORED] = {EVMC_STORAGE_MODIFIED_AGAIN, 4800 - 15000};
+    constantinople[EVMC_STORAGE_MODIFIED_AGAIN] = 0;
+    constantinople[EVMC_STORAGE_ADDED] = 0;
+    constantinople[EVMC_STORAGE_MODIFIED] = 0;
+    constantinople[EVMC_STORAGE_DELETED] = 15000;
+    constantinople[EVMC_STORAGE_DELETED_ADDED] = -15000;
+    constantinople[EVMC_STORAGE_MODIFIED_DELETED] = 15000;
+    constantinople[EVMC_STORAGE_ADDED_DELETED] = 19800;
+    constantinople[EVMC_STORAGE_MODIFIED_RESTORED] = 4800;
+    constantinople[EVMC_STORAGE_DELETED_RESTORED] = 4800 - 15000;
 
     tbl[EVMC_PETERSBURG] = frontier;
 
     auto& istanbul = tbl[EVMC_ISTANBUL] = constantinople;
-    istanbul[ST_ADDED_DELETED].refund = 19200;
-    istanbul[ST_DELETED_RESTORED].refund = 4200 - 15000;
-    istanbul[ST_MODIFIED_RESTORED].refund = 4200;
+    istanbul[EVMC_STORAGE_ADDED_DELETED] = 19200;
+    istanbul[EVMC_STORAGE_DELETED_RESTORED] = 4200 - 15000;
+    istanbul[EVMC_STORAGE_MODIFIED_RESTORED] = 4200;
 
     auto& berlin = tbl[EVMC_BERLIN] = istanbul;
-    berlin[ST_ADDED_DELETED].refund = 19900;
-    berlin[ST_DELETED_RESTORED].refund = 2800 - 15000;
-    berlin[ST_MODIFIED_RESTORED].refund = 2800;
+    berlin[EVMC_STORAGE_ADDED_DELETED] = 19900;
+    berlin[EVMC_STORAGE_DELETED_RESTORED] = 2800 - 15000;
+    berlin[EVMC_STORAGE_MODIFIED_RESTORED] = 2800;
 
     auto& london = tbl[EVMC_LONDON] = berlin;
-    london[ST_DELETED].refund = 4800;
-    london[ST_DELETED_RESTORED].refund = 2800 - 4800;
-    london[ST_MODIFIED_DELETED].refund = 4800;
-    london[ST_DELETED_ADDED].refund = -4800;
+    london[EVMC_STORAGE_DELETED] = 4800;
+    london[EVMC_STORAGE_DELETED_RESTORED] = 2800 - 4800;
+    london[EVMC_STORAGE_MODIFIED_DELETED] = 4800;
+    london[EVMC_STORAGE_DELETED_ADDED] = -4800;
 
     tbl[EVMC_PARIS] = london;
     tbl[EVMC_SHANGHAI] = london;
@@ -145,9 +123,7 @@ evmc_storage_status Host::set_storage(
     */
 
     auto& [current, original, _] = storage[key];
-    [[maybe_unused]] const auto prev_refund = m_refund;
-
-    auto st = ST_MODIFIED_AGAIN;
+    auto st = EVMC_STORAGE_MODIFIED_AGAIN;
     if (current != value)
     {
         if (original == current)  // clean
@@ -155,17 +131,17 @@ evmc_storage_status Host::set_storage(
             if (is_zero(current))
             {
                 assert(is_zero(current) && !is_zero(value));
-                st = ST_ADDED;
+                st = EVMC_STORAGE_ADDED;
             }
             else if (!is_zero(value))
             {
                 assert(!is_zero(current));
-                st = ST_MODIFIED;
+                st = EVMC_STORAGE_MODIFIED;
             }
             else
             {
                 assert(!is_zero(current) && is_zero(value));
-                st = ST_DELETED;
+                st = EVMC_STORAGE_DELETED;
             }
         }
         else  // dirty
@@ -177,16 +153,16 @@ evmc_storage_status Host::set_storage(
                     assert(is_zero(original));
                     assert(is_zero(value));
                     assert(!is_zero(current));
-                    st = ST_ADDED_DELETED;
+                    st = EVMC_STORAGE_ADDED_DELETED;
                 }
                 else if (is_zero(current))  // X -> 0 -> X "deleted restored"
                 {
-                    st = ST_DELETED_RESTORED;
+                    st = EVMC_STORAGE_DELETED_RESTORED;
                 }
                 else  // X -> Y -> X "modified restored"
                 {
                     assert(!is_zero(value));
-                    st = ST_MODIFIED_RESTORED;
+                    st = EVMC_STORAGE_MODIFIED_RESTORED;
                 }
             }
             else
@@ -196,11 +172,11 @@ evmc_storage_status Host::set_storage(
                     assert(!is_zero(current));
                     assert(is_zero(value));
                     assert(original != value);
-                    st = ST_MODIFIED_DELETED;
+                    st = EVMC_STORAGE_MODIFIED_DELETED;
                 }
                 else if (is_zero(current))  // X -> 0 -> Y "deleted added"
                 {
-                    st = ST_DELETED_ADDED;
+                    st = EVMC_STORAGE_DELETED_ADDED;
                 }
                 else
                 {
@@ -217,9 +193,8 @@ evmc_storage_status Host::set_storage(
 
     hitmap.tbl[m_rev][st] = true;
 
-    const auto& [status, refund] = storage_traits[m_rev][st];
-    m_refund += refund;
-    return status;
+    m_refund += storage_refunds[m_rev][st];;
+    return st;
 }
 
 uint256be Host::get_balance(const address& addr) const noexcept
