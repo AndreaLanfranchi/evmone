@@ -269,7 +269,7 @@ evmc::result Host::create(const evmc_message& msg) noexcept
     // Check collision as defined in pseudo-EIP https://github.com/ethereum/EIPs/issues/684.
     // All combinations of conditions (nonce, code, storage) are tested.
     if (const auto collision_acc = m_state.get_or_null(new_addr);
-        collision_acc != nullptr && !(collision_acc->nonce == 0 && collision_acc->code.empty()))
+        collision_acc != nullptr && (collision_acc->nonce != 0 || !collision_acc->code.empty()))
         return evmc::result{EVMC_OUT_OF_GAS, 0, new_addr};
 
     auto& new_acc = m_state.get_or_create(new_addr);
