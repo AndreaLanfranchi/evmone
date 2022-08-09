@@ -55,7 +55,7 @@ private:
     size_t copy_code(const address& addr, size_t code_offset, uint8_t* buffer_data,
         size_t buffer_size) const noexcept override;
 
-    void selfdestruct(const address& addr, const address& beneficiary) noexcept override;
+    bool selfdestruct(const address& addr, const address& beneficiary) noexcept override;
 
     evmc::result create(const evmc_message& msg) noexcept;
 

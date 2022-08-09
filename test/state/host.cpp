@@ -198,7 +198,7 @@ size_t Host::copy_code(const address& addr, size_t code_offset, uint8_t* buffer_
     return num_bytes;
 }
 
-void Host::selfdestruct(const address& addr, const address& beneficiary) noexcept
+bool Host::selfdestruct(const address& addr, const address& beneficiary) noexcept
 {
     auto& beneficiary_acc = m_state.get_or_create(beneficiary);
     beneficiary_acc.touched = true;
@@ -217,7 +217,9 @@ void Host::selfdestruct(const address& addr, const address& beneficiary) noexcep
     {
         m_destructs.push_back(addr);
         m_refund += (m_rev < EVMC_LONDON) ? 24000 : 0;
+        return true;
     }
+    return false;
 }
 
 static address compute_new_address(const evmc_message& msg, uint64_t sender_nonce) noexcept
