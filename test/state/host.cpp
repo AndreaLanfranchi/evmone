@@ -23,59 +23,6 @@ bytes32 Host::get_storage(const address& addr, const bytes32& key) const noexcep
     return {};
 }
 
-static constexpr auto storage_refunds = []() noexcept {
-    std::array<std::array<int32_t, 9>, EVMC_MAX_REVISION + 1> tbl{};
-
-    auto& frontier = tbl[EVMC_FRONTIER];
-    frontier[EVMC_STORAGE_DELETED] = 15000;
-    frontier[EVMC_STORAGE_DELETED_ADDED] = frontier[EVMC_STORAGE_ADDED];
-    frontier[EVMC_STORAGE_MODIFIED_DELETED] = frontier[EVMC_STORAGE_DELETED];
-    frontier[EVMC_STORAGE_ADDED_DELETED] = frontier[EVMC_STORAGE_DELETED];
-    frontier[EVMC_STORAGE_MODIFIED_RESTORED] = frontier[EVMC_STORAGE_MODIFIED];
-    frontier[EVMC_STORAGE_DELETED_RESTORED] = frontier[EVMC_STORAGE_ADDED];
-
-    tbl[EVMC_HOMESTEAD] = frontier;
-    tbl[EVMC_TANGERINE_WHISTLE] = frontier;
-    tbl[EVMC_SPURIOUS_DRAGON] = frontier;
-    tbl[EVMC_BYZANTIUM] = frontier;
-
-    auto& constantinople = tbl[EVMC_CONSTANTINOPLE];
-
-    constantinople[EVMC_STORAGE_MODIFIED_AGAIN] = 0;
-    constantinople[EVMC_STORAGE_ADDED] = 0;
-    constantinople[EVMC_STORAGE_MODIFIED] = 0;
-    constantinople[EVMC_STORAGE_DELETED] = 15000;
-    constantinople[EVMC_STORAGE_DELETED_ADDED] = -15000;
-    constantinople[EVMC_STORAGE_MODIFIED_DELETED] = 15000;
-    constantinople[EVMC_STORAGE_ADDED_DELETED] = 19800;
-    constantinople[EVMC_STORAGE_MODIFIED_RESTORED] = 4800;
-    constantinople[EVMC_STORAGE_DELETED_RESTORED] = 4800 - 15000;
-
-    tbl[EVMC_PETERSBURG] = frontier;
-
-    auto& istanbul = tbl[EVMC_ISTANBUL] = constantinople;
-    istanbul[EVMC_STORAGE_ADDED_DELETED] = 19200;
-    istanbul[EVMC_STORAGE_DELETED_RESTORED] = 4200 - 15000;
-    istanbul[EVMC_STORAGE_MODIFIED_RESTORED] = 4200;
-
-    auto& berlin = tbl[EVMC_BERLIN] = istanbul;
-    berlin[EVMC_STORAGE_ADDED_DELETED] = 19900;
-    berlin[EVMC_STORAGE_DELETED_RESTORED] = 2800 - 15000;
-    berlin[EVMC_STORAGE_MODIFIED_RESTORED] = 2800;
-
-    auto& london = tbl[EVMC_LONDON] = berlin;
-    london[EVMC_STORAGE_DELETED] = 4800;
-    london[EVMC_STORAGE_DELETED_RESTORED] = 2800 - 4800;
-    london[EVMC_STORAGE_MODIFIED_DELETED] = 4800;
-    london[EVMC_STORAGE_DELETED_ADDED] = -4800;
-
-    tbl[EVMC_PARIS] = london;
-    tbl[EVMC_SHANGHAI] = london;
-    tbl[EVMC_CANCUN] = london;
-
-    return tbl;
-}();
-
 struct HitMap
 {
     std::array<std::array<bool, 9>, EVMC_MAX_REVISION + 1> tbl{};
@@ -164,7 +111,6 @@ evmc_storage_status Host::set_storage(
     hitmap.tbl[m_rev][status] = true;
 
     storage_slot.current = value;
-    m_refund += storage_refunds[m_rev][status];
     return status;
 }
 
@@ -216,7 +162,6 @@ bool Host::selfdestruct(const address& addr, const address& beneficiary) noexcep
     if (std::find(m_destructs.begin(), m_destructs.end(), addr) == m_destructs.end())
     {
         m_destructs.push_back(addr);
-        m_refund += (m_rev < EVMC_LONDON) ? 24000 : 0;
         return true;
     }
     return false;
@@ -367,7 +312,6 @@ evmc::result Host::execute_message(const evmc_message& msg) noexcept
 evmc::result Host::call(const evmc_message& msg) noexcept
 {
     auto state_snapshot = m_state;
-    const auto refund_snapshot = m_refund;
     auto destructs_snapshot = m_destructs.size();
     auto access_addresses_snapshot = m_accessed_addresses;
     auto logs_snapshot = m_logs.size();
@@ -382,7 +326,6 @@ evmc::result Host::call(const evmc_message& msg) noexcept
 
         // Revert.
         m_state = std::move(state_snapshot);
-        m_refund = refund_snapshot;
         m_destructs.resize(destructs_snapshot);
         m_accessed_addresses = std::move(access_addresses_snapshot);
         m_logs.resize(logs_snapshot);

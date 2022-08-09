@@ -144,15 +144,7 @@ std::optional<std::vector<Log>> transition(
 
     const auto max_refund_quotient = rev >= EVMC_LONDON ? 5 : 2;
     const auto refund_limit = gas_used / max_refund_quotient;
-    const auto refund_raw = (result.status_code == EVMC_SUCCESS) ? host.get_refund() : 0;
-    const auto refund_evm = (result.status_code == EVMC_SUCCESS) ? result.refund : 0;
-    if (refund_evm != refund_raw)
-    {
-        std::cerr << "REFUND: wrong, rev: " << rev << ", EVM: " << refund_evm
-                  << ", correct: " << refund_raw << "\n";
-        __builtin_trap();
-    }
-    const auto refund = std::min(refund_raw, refund_limit);
+    const auto refund = std::min(result.refund, refund_limit);
     gas_used -= refund;
 
     const auto sender_fee = gas_used * effective_gas_price;

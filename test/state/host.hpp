@@ -20,7 +20,6 @@ class Host : public evmc::Host
     const BlockInfo& m_block;
     const Transaction& m_tx;
     std::unordered_set<address> m_accessed_addresses;
-    int64_t m_refund = 0;
     std::vector<address> m_destructs;
     std::vector<Log> m_logs;
 
@@ -29,8 +28,6 @@ public:
         const Transaction& tx) noexcept
       : m_rev{rev}, m_vm{vm}, m_state{state}, m_block{block}, m_tx{tx}
     {}
-
-    [[nodiscard]] int64_t get_refund() const noexcept { return m_refund; }
 
     [[nodiscard]] const auto& get_destructs() const noexcept { return m_destructs; }
 
