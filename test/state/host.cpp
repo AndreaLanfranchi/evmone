@@ -330,7 +330,9 @@ evmc::result Host::create(const evmc_message& msg) noexcept
     //       but this should change if state journal is implemented.
     m_state.get(new_addr).code = code;
 
-    return evmc::result{result.status_code, gas_left, new_addr};
+    auto final_result = evmc::result{result.status_code, gas_left, new_addr};
+    final_result.refund = result.refund;
+    return final_result;
 }
 
 evmc::result Host::execute_message(const evmc_message& msg) noexcept
