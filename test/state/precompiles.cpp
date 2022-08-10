@@ -278,7 +278,7 @@ std::optional<evmc::result> call_precompile(evmc_revision rev, const evmc_messag
         t.execute(msg.input_data, msg.input_size, output_buf, max_output_size);
 
     evmc::result result{
-        status_code, status_code == EVMC_SUCCESS ? gas_left : 0, output_buf, output_size};
+        status_code, status_code == EVMC_SUCCESS ? gas_left : 0, 0, output_buf, output_size};
 
     cache.insert(id, input, result);
 

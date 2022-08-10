@@ -217,7 +217,7 @@ evmc::result Host::create(const evmc_message& msg) noexcept
     // All combinations of conditions (nonce, code, storage) are tested.
     if (const auto collision_acc = m_state.get_or_null(new_addr);
         collision_acc != nullptr && (collision_acc->nonce != 0 || !collision_acc->code.empty()))
-        return evmc::result{EVMC_OUT_OF_GAS, 0, new_addr};
+        return evmc::result{EVMC_OUT_OF_GAS, 0, 0, new_addr};
 
     auto& new_acc = m_state.get_or_create(new_addr);
     if (m_rev >= EVMC_SPURIOUS_DRAGON)
@@ -250,13 +250,13 @@ evmc::result Host::create(const evmc_message& msg) noexcept
 
     bytes_view code{result.output_data, result.output_size};
     if (m_rev >= EVMC_SPURIOUS_DRAGON && code.size() > 0x6000)
-        return evmc::result{EVMC_OUT_OF_GAS, 0, new_addr};
+        return evmc::result{EVMC_OUT_OF_GAS, 0, 0, new_addr};
 
     const auto cost = static_cast<int64_t>(code.size()) * 200;
     gas_left -= cost;
     if (gas_left < 0)
     {
-        evmc::result r{EVMC_OUT_OF_GAS, 0, new_addr};
+        evmc::result r{EVMC_OUT_OF_GAS, 0, 0, new_addr};
 
         if (m_rev == EVMC_FRONTIER)
         {
@@ -269,15 +269,13 @@ evmc::result Host::create(const evmc_message& msg) noexcept
 
     // Reject EF code.
     if (m_rev >= EVMC_LONDON && !code.empty() && code[0] == 0xEF)
-        return evmc::result{EVMC_OUT_OF_GAS, 0, new_addr};
+        return evmc::result{EVMC_OUT_OF_GAS, 0, 0, new_addr};
 
     // TODO: The new_acc pointer is invalid because of the state revert implementation,
     //       but this should change if state journal is implemented.
     m_state.get(new_addr).code = code;
 
-    auto final_result = evmc::result{result.status_code, gas_left, new_addr};
-    final_result.refund = result.refund;
-    return final_result;
+    return evmc::result{result.status_code, gas_left, result.gas_refund, new_addr};
 }
 
 evmc::result Host::execute_message(const evmc_message& msg) noexcept

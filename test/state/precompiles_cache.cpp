@@ -32,7 +32,7 @@ std::optional<evmc::result> Cache::find(uint8_t id, bytes_view input, int64_t ga
             if (const auto& o = it->second; !o.has_value())
                 return evmc::result{EVMC_OUT_OF_GAS};
             else
-                return evmc::result{EVMC_SUCCESS, gas_left, o->data(), o->size()};
+                return evmc::result{EVMC_SUCCESS, gas_left, 0, o->data(), o->size()};
         }
     }
     return {};
