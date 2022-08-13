@@ -27,5 +27,5 @@ struct ExecutionResult
     size_t output_size;
 };
 
-std::optional<evmc::result> call_precompile(evmc_revision rev, const evmc_message& msg) noexcept;
+std::optional<evmc::Result> call_precompile(evmc_revision rev, const evmc_message& msg) noexcept;
 }  // namespace evmone::state

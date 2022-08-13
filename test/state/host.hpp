@@ -33,7 +33,7 @@ public:
 
     [[nodiscard]] std::vector<Log>&& take_logs() noexcept { return std::move(m_logs); }
 
-    evmc::result call(const evmc_message& msg) noexcept override;
+    evmc::Result call(const evmc_message& msg) noexcept override;
 
 private:
     bool account_exists(const address& addr) const noexcept override;
@@ -54,7 +54,7 @@ private:
 
     bool selfdestruct(const address& addr, const address& beneficiary) noexcept override;
 
-    evmc::result create(const evmc_message& msg) noexcept;
+    evmc::Result create(const evmc_message& msg) noexcept;
 
     evmc_tx_context get_tx_context() const noexcept override;
 
@@ -67,6 +67,6 @@ private:
 
     evmc_access_status access_storage(const address& addr, const bytes32& key) noexcept override;
 
-    evmc::result execute_message(const evmc_message& msg) noexcept;
+    evmc::Result execute_message(const evmc_message& msg) noexcept;
 };
 }  // namespace evmone::state

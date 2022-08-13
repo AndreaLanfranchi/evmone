@@ -243,7 +243,7 @@ inline constexpr auto traits = []() noexcept {
 }();
 }  // namespace
 
-std::optional<evmc::result> call_precompile(evmc_revision rev, const evmc_message& msg) noexcept
+std::optional<evmc::Result> call_precompile(evmc_revision rev, const evmc_message& msg) noexcept
 {
     if (evmc::is_zero(msg.code_address) || msg.code_address > 0x09_address)
         return {};
@@ -264,7 +264,7 @@ std::optional<evmc::result> call_precompile(evmc_revision rev, const evmc_messag
     const auto [gas_cost, max_output_size] = t.analyze(msg.input_data, msg.input_size, rev);
     const auto gas_left = msg.gas - gas_cost;
     if (gas_left < 0)
-        return evmc::result{EVMC_OUT_OF_GAS};
+        return evmc::Result{EVMC_OUT_OF_GAS};
     assert(std::size(output_buf) >= max_output_size);
 
     static Cache cache;
@@ -277,7 +277,7 @@ std::optional<evmc::result> call_precompile(evmc_revision rev, const evmc_messag
     const auto [status_code, output_size] =
         t.execute(msg.input_data, msg.input_size, output_buf, max_output_size);
 
-    evmc::result result{
+    evmc::Result result{
         status_code, status_code == EVMC_SUCCESS ? gas_left : 0, 0, output_buf, output_size};
 
     cache.insert(id, input, result);

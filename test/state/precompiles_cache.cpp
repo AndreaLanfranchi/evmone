@@ -22,7 +22,7 @@ inline uint64_t fnv1a(bytes_view v) noexcept
 }
 }  // namespace
 
-std::optional<evmc::result> Cache::find(uint8_t id, bytes_view input, int64_t gas_left) const
+std::optional<evmc::Result> Cache::find(uint8_t id, bytes_view input, int64_t gas_left) const
 {
     if (const auto& cache = m_cache.at(id); !cache.empty())
     {
@@ -30,15 +30,15 @@ std::optional<evmc::result> Cache::find(uint8_t id, bytes_view input, int64_t ga
         if (const auto it = cache.find(input_hash); it != cache.end())
         {
             if (const auto& o = it->second; !o.has_value())
-                return evmc::result{EVMC_OUT_OF_GAS};
+                return evmc::Result{EVMC_OUT_OF_GAS};
             else
-                return evmc::result{EVMC_SUCCESS, gas_left, 0, o->data(), o->size()};
+                return evmc::Result{EVMC_SUCCESS, gas_left, 0, o->data(), o->size()};
         }
     }
     return {};
 }
 
-void Cache::insert(uint8_t id, bytes_view input, const evmc::result& result)
+void Cache::insert(uint8_t id, bytes_view input, const evmc::Result& result)
 {
     if (id == 4)  // Do not cache "identity".
         return;
