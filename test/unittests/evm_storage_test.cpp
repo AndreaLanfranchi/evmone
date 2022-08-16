@@ -169,6 +169,120 @@ TEST_P(evm, sstore_cost)
     }
 }
 
+TEST_P(evm, sstore_cost_legacy)
+{
+    static constexpr auto O = 0x000000000000000000_bytes32;
+    static constexpr auto X = 0xfeffffffffffffffff_bytes32;
+    static constexpr auto Y = 0x011000000000000002_bytes32;
+    static constexpr auto Z = 0x800000000000000001_bytes32;
+    static constexpr auto key = 0xef_bytes32;
+
+    static constexpr int64_t b = 9;  // Cost of other instructions.
+
+    static constexpr struct
+    {
+        int64_t set = 20000;
+        int64_t reset = 5000;
+        int64_t clear = 15000;
+    } c;
+
+    auto test = [this](const evmc::bytes32& original, const evmc::bytes32& current,
+                    const evmc::bytes32& value, int64_t expected_gas_used,
+                    int64_t expected_gas_refund) {
+        auto& storage = host.accounts[msg.recipient].storage;
+        storage[key] = {current, original};
+        execute(sstore(0xef, calldataload(0)), value);
+        EXPECT_EQ(storage[key].current, value);
+        EXPECT_GAS_USED(EVMC_SUCCESS, expected_gas_used);
+        EXPECT_EQ(result.gas_refund, expected_gas_refund);
+    };
+
+    for (const auto r : {EVMC_FRONTIER, EVMC_BYZANTIUM, EVMC_PETERSBURG})
+    {
+        rev = r;
+
+        test(O, O, O, b + c.reset, 0);  // assigned
+        test(X, O, O, b + c.reset, 0);
+        test(O, Y, Y, b + c.reset, 0);
+        test(X, Y, Y, b + c.reset, 0);
+        test(Y, Y, Y, b + c.reset, 0);
+        test(O, Y, Z, b + c.reset, 0);
+        test(X, Y, Z, b + c.reset, 0);
+
+        test(O, O, Z, b + c.set, 0);          // added
+        test(X, X, O, b + c.reset, c.clear);  // deleted
+        test(X, X, Z, b + c.reset, 0);        // modified
+        test(X, O, Z, b + c.set, 0);          // deleted added
+        test(X, Y, O, b + c.reset, c.clear);  // modified deleted
+        test(X, O, X, b + c.set, 0);          // deleted restored
+        test(O, Y, O, b + c.reset, c.clear);  // added deleted
+        test(X, Y, X, b + c.reset, 0);        // modified restored
+    }
+}
+
+TEST_P(evm, sstore_cost_net_gas_metering)
+{
+    // Follow the table on https://evmc.ethereum.org/storagestatus.html
+
+    static constexpr auto O = 0x000000000000000000_bytes32;
+    static constexpr auto X = 0x00ffffffffffffffff_bytes32;
+    static constexpr auto Y = 0x010000000000000000_bytes32;
+    static constexpr auto Z = 0x010000000000000001_bytes32;
+    static constexpr auto key = 0xde_bytes32;
+
+    static constexpr int64_t b = 9;  // Cost of other instructions.
+
+    struct CostConstants
+    {
+        int64_t warmaccess = -1;
+        int64_t set = -1;
+        int64_t reset = -1;
+        int64_t clear = -1;
+    };
+
+    auto test = [this](const evmc::bytes32& original, const evmc::bytes32& current,
+                    const evmc::bytes32& value, int64_t expected_gas_used,
+                    int64_t expected_gas_refund) {
+        auto& storage = host.accounts[msg.recipient].storage;
+        storage[key].original = original;
+        storage[key].current = current;
+        storage[key].access_status = EVMC_ACCESS_WARM;
+        execute(sstore(0xde, calldataload(0)), value);
+        EXPECT_EQ(storage[key].current, value);
+        EXPECT_GAS_USED(EVMC_SUCCESS, expected_gas_used);
+        EXPECT_EQ(result.gas_refund, expected_gas_refund);
+    };
+
+    std::array<CostConstants, EVMC_MAX_REVISION + 1> cost_constants{};
+    cost_constants[EVMC_CONSTANTINOPLE] = {200, 20000, 5000, 15000};
+    cost_constants[EVMC_ISTANBUL] = {800, 20000, 5000, 15000};
+    cost_constants[EVMC_BERLIN] = {100, 20000, 2900, 15000};
+    cost_constants[EVMC_LONDON] = {100, 20000, 2900, 4800};
+
+    for (const auto r : {EVMC_CONSTANTINOPLE, EVMC_ISTANBUL, EVMC_BERLIN, EVMC_LONDON})
+    {
+        rev = r;
+        const auto& c = cost_constants.at(static_cast<size_t>(r));
+
+        test(O, O, O, b + c.warmaccess, 0);  // assigned
+        test(X, O, O, b + c.warmaccess, 0);
+        test(O, Y, Y, b + c.warmaccess, 0);
+        test(X, Y, Y, b + c.warmaccess, 0);
+        test(Y, Y, Y, b + c.warmaccess, 0);
+        test(O, Y, Z, b + c.warmaccess, 0);
+        test(X, Y, Z, b + c.warmaccess, 0);
+
+        test(O, O, Z, b + c.set, 0);                                        // added
+        test(X, X, O, b + c.reset, c.clear);                                // deleted
+        test(X, X, Z, b + c.reset, 0);                                      // modified
+        test(X, O, Z, b + c.warmaccess, -c.clear);                          // deleted added
+        test(X, Y, O, b + c.warmaccess, c.clear);                           // modified deleted
+        test(X, O, X, b + c.warmaccess, c.reset - c.warmaccess - c.clear);  // deleted restored
+        test(O, Y, O, b + c.warmaccess, c.set - c.warmaccess);              // added deleted
+        test(X, Y, X, b + c.warmaccess, c.reset - c.warmaccess);            // modified restored
+    }
+}
+
 TEST_P(evm, sstore_below_stipend)
 {
     const auto code = sstore(0, 0);
